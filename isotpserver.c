@@ -110,6 +110,7 @@ void print_usage(char *prg)
 	fprintf(stderr, "         -d <can_id>  * (destination can_id. Use 8 digits for extended IDs)\n");
 	fprintf(stderr, "         -x <addr>[:<rxaddr>]  (extended addressing / opt. separate rxaddr)\n");
 	fprintf(stderr, "         -L <mtu>:<tx_dl>:<tx_flags>  (link layer options for CAN FD)\n");
+	fprintf(stderr, "         -X <tx_dl>:<tx_addr>:<rx_addr>:<tx_flags>:<rx_flags>:<tx_vcid>:<rx_vcid>\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "padding:\n");
 	fprintf(stderr, "         -p [tx]:[rx]  (set and enable tx/rx padding bytes)\n");
@@ -140,6 +141,7 @@ int main(int argc, char **argv)
 	static struct can_isotp_options opts;
 	static struct can_isotp_fc_options fcopts;
 	static struct can_isotp_ll_options llopts;
+	static struct can_isotp_xl_options xlopts;
 	socklen_t sin_size = sizeof(clientaddr);
 	socklen_t caddrlen = sizeof(caddr);
 
@@ -163,7 +165,7 @@ int main(int argc, char **argv)
 	/* mark missing mandatory commandline options as missing */
 	caddr.can_addr.tp.tx_id = caddr.can_addr.tp.rx_id = NO_CAN_ID;
 
-	while ((opt = getopt(argc, argv, "l:s:d:x:p:P:b:m:w:t:L:v?")) != -1) {
+	while ((opt = getopt(argc, argv, "l:s:d:x:p:P:b:m:w:t:L:X:v?")) != -1) {
 		switch (opt) {
 		case 'l':
 			local_port = strtoul(optarg, NULL, 10);
@@ -260,6 +262,21 @@ int main(int argc, char **argv)
 			}
 			break;
 
+		case 'X':
+			if (sscanf(optarg, "%u:%x:%x:%hhx:%hhx:%hhx:%hhx",
+				   &xlopts.tx_dl,
+				   &xlopts.tx_addr,
+				   &xlopts.rx_addr,
+				   &xlopts.tx_flags,
+				   &xlopts.rx_flags,
+				   &xlopts.tx_vcid,
+				   &xlopts.rx_vcid) != 7) {
+				fprintf(stderr, "unknown XL link layer options '%s'.\n", optarg);
+				print_usage(basename(argv[0]));
+				exit(0);
+			}
+			break;
+
 		case 'v':
 			verbose = 1;
 			break;
@@ -341,9 +358,21 @@ int main(int argc, char **argv)
 	setsockopt(sc, SOL_CAN_ISOTP, CAN_ISOTP_OPTS, &opts, sizeof(opts));
 	setsockopt(sc, SOL_CAN_ISOTP, CAN_ISOTP_RECV_FC, &fcopts, sizeof(fcopts));
 
+	if (llopts.tx_dl && (xlopts.tx_flags & CANXL_XLF)) {
+		printf("conflicting CC/FD and XL link layer sockopt\n");
+		exit(1);
+	}
+
 	if (llopts.tx_dl) {
 		if (setsockopt(sc, SOL_CAN_ISOTP, CAN_ISOTP_LL_OPTS, &llopts, sizeof(llopts)) < 0) {
 			perror("link layer sockopt");
+			exit(1);
+		}
+	}
+
+	if (xlopts.tx_flags & CANXL_XLF) {
+		if (setsockopt(sc, SOL_CAN_ISOTP, CAN_ISOTP_XL_OPTS, &xlopts, sizeof(xlopts)) < 0) {
+			perror("XL link layer sockopt");
 			exit(1);
 		}
 	}

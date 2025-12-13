@@ -2,7 +2,7 @@
 /*
  * linux/can/isotp.h
  *
- * Definitions for isotp CAN sockets (ISO 15765-2:2016)
+ * Definitions for ISO 15765-2 CAN transport protocol sockets
  *
  * Copyright (c) 2020 Volkswagen Group Electronic Research
  * All rights reserved.
@@ -67,6 +67,8 @@
 
 #define CAN_ISOTP_LL_OPTS	5	/* pass struct can_isotp_ll_options */
 
+#define CAN_ISOTP_XL_OPTS	6	/* pass struct can_isotp_xl_options */
+
 struct can_isotp_options {
 
 	__u32 flags;		/* set flags for isotp behaviour.	*/
@@ -120,6 +122,34 @@ struct can_isotp_ll_options {
 				/* at frame creation: e.g. CANFD_BRS	*/
 				/* Obsolete when the BRS flag is fixed	*/
 				/* by the CAN netdriver configuration	*/
+};
+
+struct can_isotp_xl_options {
+
+	__u32	tx_dl;		/* tx link layer data length in bytes	*/
+				/* (configured maximum payload length)	*/
+				/* CAN XL tx_dl range : 8 .. 2048	*/
+				/* => rx path supports all LL_DL values */
+
+	canid_t	tx_addr;	/* tx address for ISO 15675-2 channel	*/
+				/* => copy to XL acceptance field (AF)	*/
+
+	canid_t	rx_addr;	/* rx address for ISO 15675-2 channel	*/
+				/* => check of XL acceptance field (AF)	*/
+
+	__u8	tx_flags;	/* set into struct canxl_frame.flags	*/
+				/* at frame creation: e.g. CANXL_SEC	*/
+				/* (setting CANXL_XLF is mandatory)	*/
+
+	__u8	rx_flags;	/* checked in struct canxl_frame.flags	*/
+				/* at frame reception time		*/
+				/* (setting CANXL_XLF is mandatory)	*/
+
+	__u8	tx_vcid;	/* VCID value set into CAN XL frame at	*/
+				/* frame creation time (outgoing)	*/
+
+	__u8	rx_vcid;	/* checked for equality in CAN XL frame	*/
+				/* at reception time (incoming)		*/
 };
 
 /* flags for isotp behaviour */
