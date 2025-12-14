@@ -45,6 +45,7 @@
 #include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <strings.h>
 #include <time.h>
@@ -63,8 +64,15 @@
 
 #define NO_CAN_ID 0xFFFFFFFFU
 
+/* CAN CC/FD/XL frame union */
+union cfu {
+	struct can_frame cc;
+	struct canfd_frame fd;
+	struct canxl_frame xl;
+};
+
 const char fc_info [4][9] = { "CTS", "WT", "OVFLW", "reserved" };
-const int canfd_on = 1;
+const int canfx_on = 1;
 
 void print_usage(char *prg)
 {
@@ -199,11 +207,18 @@ int main(int argc, char **argv)
 	int s;
 	struct sockaddr_can addr;
 	struct can_filter rfilter[3];
-	struct canfd_frame frame;
+	static union cfu cu;
+	struct can_raw_vcid_options vcid_opts = {
+		.flags = CAN_RAW_XL_VCID_RX_FILTER,
+		.rx_vcid = 0,
+		.rx_vcid_mask = 0,
+	};
+	__u8 *data;
 	int nbytes, i;
 	canid_t src = NO_CAN_ID;
 	canid_t dst = NO_CAN_ID;
 	canid_t bst = NO_CAN_ID;
+	canid_t rx_id;
 	int ext = 0;
 	int extaddr = 0;
 	int extany = 0;
@@ -219,6 +234,7 @@ int main(int argc, char **argv)
 	unsigned long fflen = 0;
 	struct timeval tv, last_tv;
 	unsigned int n_pci;
+	int framelen;
 	int opt;
 
 	last_tv.tv_sec  = 0;
@@ -311,7 +327,11 @@ int main(int argc, char **argv)
 	}
 
 	/* try to switch the socket into CAN FD mode */
-	setsockopt(s, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, &canfd_on, sizeof(canfd_on));
+	setsockopt(s, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, &canfx_on, sizeof(canfx_on));
+	setsockopt(s, SOL_CAN_RAW, CAN_RAW_XL_FRAMES, &canfx_on, sizeof(canfx_on));
+	/* try to enable the CAN XL VCID pass through mode */
+	setsockopt(s, SOL_CAN_RAW, CAN_RAW_XL_VCID_OPTS, &vcid_opts, sizeof(vcid_opts));
+
 
 	if (src & CAN_EFF_FLAG) {
 		rfilter[0].can_id   = src & (CAN_EFF_MASK | CAN_EFF_FLAG);
@@ -355,29 +375,51 @@ int main(int argc, char **argv)
 	}
 
 	while (1) {
-		nbytes = read(s, &frame, sizeof(frame));
-		if (nbytes < 0) {
-			perror("read");
+		nbytes = read(s, &cu, sizeof(cu));
+
+		if (nbytes < (int)CANXL_HDR_SIZE + CANXL_MIN_DLEN) {
+			fprintf(stderr, "read: no CAN frame\n");
 			return 1;
 		}
-		if (nbytes != CAN_MTU && nbytes != CANFD_MTU) {
-			fprintf(stderr, "read: incomplete CAN frame %zu %d\n", sizeof(frame), nbytes);
-			return 1;
+
+		if (cu.xl.flags & CANXL_XLF) {
+			if (nbytes != (int)CANXL_HDR_SIZE + cu.xl.len) {
+				printf("nbytes = %d\n", nbytes);
+				fprintf(stderr, "read: no CAN XL frame\n");
+				return 1;
+			}
+			rx_id = cu.xl.prio & CANXL_PRIO_MASK; /* remove VCID value */
+			data = cu.xl.data;
+			framelen = cu.xl.len;
+		} else {
+			/* mark dual-use struct canfd_frame */
+			if (nbytes == CAN_MTU)
+				cu.fd.flags = 0;
+			else if (nbytes == CANFD_MTU)
+				cu.fd.flags |= CANFD_FDF;
+			else {
+				fprintf(stderr, "read: incomplete CAN CC/FD frame\n");
+				return 1;
+			}
+			rx_id = cu.fd.can_id;
+			data = cu.fd.data;
+			framelen = cu.fd.len;
 		}
-		if (frame.can_id == src && ext && !extany &&
-		    extaddr != frame.data[0])
+
+		if (rx_id == src && ext && !extany &&
+		    extaddr != *(data))
 			continue;
 
-		if (frame.can_id == dst && rx_ext && !rx_extany &&
-		    rx_extaddr != frame.data[0])
+		if (rx_id == dst && rx_ext && !rx_extany &&
+		    rx_extaddr != *(data))
 			continue;
 
 		if (color) {
-			if (frame.can_id == src)
+			if (rx_id == src)
 				printf("%s", FGRED);
-			else if (frame.can_id == dst)
+			else if (rx_id == dst)
 				printf("%s", FGBLUE);
-			else if (frame.can_id == bst)
+			else if (rx_id == bst)
 				printf("%s", FGGREEN);
 		}
 
@@ -426,52 +468,56 @@ int main(int argc, char **argv)
 			}
 		}
 
-		if (frame.can_id & CAN_EFF_FLAG)
-			printf(" %s  %8X", argv[optind], frame.can_id & CAN_EFF_MASK);
+		if (rx_id & CAN_EFF_FLAG)
+			printf(" %s  %8X", argv[optind], rx_id & CAN_EFF_MASK);
 		else
-			printf(" %s  %3X", argv[optind], frame.can_id & CAN_SFF_MASK);
+			printf(" %s  %3X", argv[optind], rx_id & CAN_SFF_MASK);
 
 		if (ext)
-			printf("{%02X}", frame.data[0]);
+			printf("{%02X}", *(data));
 
-		if (nbytes == CAN_MTU)
-			printf("  [%d]  ", frame.len);
+		if (cu.xl.flags & CANXL_XLF)
+			printf(" [%04d] ", framelen);
+		else if (nbytes == CAN_MTU)
+			printf("   [%d]  ", framelen);
 		else
-			printf(" [%02d]  ", frame.len);
+			printf("  [%02d]  ", framelen);
 
 		datidx = 0;
-		n_pci = frame.data[ext];
+		n_pci = *(data + ext);
 
 		switch (n_pci & 0xF0) {
 		case 0x00:
 			is_ff = 1;
-			if (n_pci & 0xF) {
-				printf("[SF] ln: %-4d data:", n_pci & 0xF);
-				datidx = ext+1;
+			if ((n_pci & 0xF) && (n_pci <= 7)) {
+				printf("[SF] ln: %-4d data:", n_pci);
+				datidx = ext + 1;
 			} else {
-				printf("[SF] ln: %-4d data:", frame.data[ext + 1]);
-				datidx = ext+2;
+				/* n_pci == 0 (FD extension) or > 8 (XL extension) */
+				printf("[SF] ln: %-4d data:",
+				       ((n_pci & 0x7) << 8) + *(data + ext + 1));
+				datidx = ext + 2;
 			}
 			break;
 
 		case 0x10:
 			is_ff = 1;
-			fflen = ((n_pci & 0x0F)<<8) + frame.data[ext+1];
+			fflen = ((n_pci & 0x0F) << 8) + *(data + ext + 1);
 			if (fflen)
-				datidx = ext+2;
+				datidx = ext + 2;
 			else {
-				fflen = (frame.data[ext+2]<<24) +
-					(frame.data[ext+3]<<16) +
-					(frame.data[ext+4]<<8) +
-					frame.data[ext+5];
-				datidx = ext+6;
+				fflen = (*(data + ext + 2) << 24) +
+					(*(data + ext + 3) << 16) +
+					(*(data + ext + 4) << 8) +
+					*(data + ext + 5);
+				datidx = ext + 6;
 			}
 			printf("[FF] ln: %-4lu data:", fflen);
 			break;
 
 		case 0x20:
 			printf("[CF] sn: %X    data:", n_pci & 0x0F);
-			datidx = ext+1;
+			datidx = ext + 1;
 			break;
 
 		case 0x30:
@@ -483,10 +529,10 @@ int main(int argc, char **argv)
 
 			printf("= %s # ", fc_info[n_pci]);
 
-			printf("BS: %d %s# ", frame.data[ext+1],
-			       (frame.data[ext+1])? "":"= off ");
+			printf("BS: %d %s# ", *(data + ext + 1),
+			       (*(data + ext + 1))? "":"= off ");
 
-			i = frame.data[ext+2];
+			i = *(data + ext + 2);
 			printf("STmin: 0x%02X = ", i);
 
 			if (i < 0x80)
@@ -501,35 +547,35 @@ int main(int argc, char **argv)
 			printf("[??]");
 		}
 
-		if (datidx && frame.len > datidx) {
+		if (datidx && framelen > datidx) {
 			printf(" ");
-			for (i = datidx; i < frame.len; i++) {
-				printf("%02X ", frame.data[i]);
-			}
+			for (i = datidx; i < framelen; i++)
+				printf("%02X ", *(data + i));
 
 			if (asc) {
-				printf("%*s", ((7-ext) - (frame.len-datidx))*3 + 5 ,
-				       "-  '");
-				for (i = datidx; i < frame.len; i++) {
-					printf("%c",((frame.data[i] > 0x1F) &&
-						     (frame.data[i] < 0x7F))?
-					       frame.data[i] : '.');
+				printf("%*s", ((7-ext) - (framelen-datidx))*3 + 5, "-  '");
+				for (i = datidx; i < framelen; i++) {
+					printf("%c",((*(data + i) > 0x1F) &&
+						     (*(data + i) < 0x7F))?
+					       *(data + i) : '.');
 				}
 				printf("'");
 			}
 			if (uds_output && is_ff) {
 				int offset = 3;
+
 				if (asc)
 					offset = 1;
-				printf("%*s", ((7-ext) - (frame.len-datidx))*offset + 3,
-				       " - ");
-				print_uds_message(frame.data[datidx], frame.data[datidx+2]);
+
+				printf("%*s", ((7-ext) - (framelen-datidx)) * offset + 3, " - ");
+				print_uds_message(*(data + datidx), *(data + datidx + 2));
 				is_ff = 0;
 			}
 		}
 
 		if (color)
 			printf("%s", ATTRESET);
+
 		printf("\n");
 		fflush(stdout);
 	}
