@@ -46,6 +46,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <limits.h>
 #include <string.h>
 #include <strings.h>
 #include <time.h>
@@ -85,6 +86,7 @@ void print_usage(char *prg)
 	fprintf(stderr, "         -X <addr>    (extended addressing mode (rx addr). Use 'any' for all)\n");
 	fprintf(stderr, "         -c           (color mode)\n");
 	fprintf(stderr, "         -a           (print data also in ASCII-chars)\n");
+	fprintf(stderr, "         -L <length>  (limit the printed data length. Minimum <length> = 8)\n");
 	fprintf(stderr, "         -t <type>    (timestamp: (a)bsolute/(d)elta/(z)ero/(A)bsolute w date)\n");
 	fprintf(stderr, "         -u           (print uds messages)\n");
 	fprintf(stderr, "\nCAN IDs and addresses are given and expected in hexadecimal values.\n");
@@ -235,12 +237,13 @@ int main(int argc, char **argv)
 	struct timeval tv, last_tv;
 	unsigned int n_pci;
 	int framelen;
+	int max_printlen = INT_MAX;
 	int opt;
 
 	last_tv.tv_sec  = 0;
 	last_tv.tv_usec = 0;
 
-	while ((opt = getopt(argc, argv, "s:d:b:ax:X:ct:u?")) != -1) {
+	while ((opt = getopt(argc, argv, "s:d:b:aL:x:X:ct:u?")) != -1) {
 		switch (opt) {
 		case 's':
 			src = strtoul(optarg, NULL, 16);
@@ -274,6 +277,15 @@ int main(int argc, char **argv)
 				extany = 1;
 			else
 				extaddr = strtoul(optarg, NULL, 16) & 0xFF;
+			break;
+
+		case 'L':
+			max_printlen = atoi(optarg);
+			if (max_printlen < 8) {
+				fprintf(stderr, "data print limit %d is too low.\n", max_printlen);
+				print_usage(basename(argv[0]));
+				exit(1);
+			}
 			break;
 
 		case 'X':
@@ -546,6 +558,9 @@ int main(int argc, char **argv)
 		default:
 			printf("[??]");
 		}
+
+		if (framelen > max_printlen)
+			framelen = max_printlen;
 
 		if (datidx && framelen > datidx) {
 			printf(" ");
