@@ -86,6 +86,7 @@ void print_usage(char *prg)
 	fprintf(stderr, "         -X <addr>    (extended addressing mode (rx addr). Use 'any' for all)\n");
 	fprintf(stderr, "         -c           (color mode)\n");
 	fprintf(stderr, "         -a           (print data also in ASCII-chars)\n");
+	fprintf(stderr, "         -3           (limit printing of CFs to 3 items per PDU)\n");
 	fprintf(stderr, "         -L <length>  (limit the printed data length. Minimum <length> = 8)\n");
 	fprintf(stderr, "         -t <type>    (timestamp: (a)bsolute/(d)elta/(z)ero/(A)bsolute w date)\n");
 	fprintf(stderr, "         -u           (print uds messages)\n");
@@ -228,6 +229,10 @@ int main(int argc, char **argv)
 	int rx_extaddr = 0;
 	int rx_extany = 0;
 	int asc = 0;
+	int limit_cfs = 0;
+	int src_cfs = 0;
+	int dst_cfs = 0;
+	int bst_cfs = 0;
 	int color = 0;
 	int uds_output = 0;
 	int uds_data_start = 0;
@@ -243,7 +248,7 @@ int main(int argc, char **argv)
 	last_tv.tv_sec  = 0;
 	last_tv.tv_usec = 0;
 
-	while ((opt = getopt(argc, argv, "s:d:b:aL:x:X:ct:u?")) != -1) {
+	while ((opt = getopt(argc, argv, "s:d:b:a3L:x:X:ct:u?")) != -1) {
 		switch (opt) {
 		case 's':
 			src = strtoul(optarg, NULL, 16);
@@ -269,6 +274,10 @@ int main(int argc, char **argv)
 
 		case 'a':
 			asc = 1;
+			break;
+
+		case '3':
+			limit_cfs = 1;
 			break;
 
 		case 'x':
@@ -426,6 +435,19 @@ int main(int argc, char **argv)
 		    rx_extaddr != *(data))
 			continue;
 
+		datidx = 0;
+		n_pci = *(data + ext);
+
+		/* Consecutive Frame limiter enabled? */
+		if (limit_cfs && (n_pci & 0xF0) == 0x20) {
+			if (rx_id == src && src_cfs > 2)
+				continue;
+			if (rx_id == dst && dst_cfs > 2)
+				continue;
+			if (rx_id == bst && bst_cfs > 2)
+				continue;
+		}
+
 		if (color) {
 			if (rx_id == src)
 				printf("%s", FGRED);
@@ -495,12 +517,20 @@ int main(int argc, char **argv)
 		else
 			printf("  [%02d]  ", framelen);
 
-		datidx = 0;
-		n_pci = *(data + ext);
-
 		switch (n_pci & 0xF0) {
 		case 0x00:
 			uds_data_start = 1;
+
+			/* Consecutive Frame limiter enabled? */
+			if (limit_cfs) {
+				if (rx_id == src)
+					src_cfs = 0;
+				if (rx_id == dst)
+					dst_cfs = 0;
+				if (rx_id == bst)
+					bst_cfs = 0;
+			}
+
 			if ((n_pci & 0xF) && (n_pci <= 7)) {
 				printf("[SF] ln: %-4d data:", n_pci);
 				datidx = ext + 1;
@@ -514,6 +544,17 @@ int main(int argc, char **argv)
 
 		case 0x10:
 			uds_data_start = 1;
+
+			/* Consecutive Frame limiter enabled? */
+			if (limit_cfs) {
+				if (rx_id == src)
+					src_cfs = 0;
+				if (rx_id == dst)
+					dst_cfs = 0;
+				if (rx_id == bst)
+					bst_cfs = 0;
+			}
+
 			fflen = ((n_pci & 0x0F) << 8) + *(data + ext + 1);
 			if (fflen)
 				datidx = ext + 2;
@@ -528,6 +569,16 @@ int main(int argc, char **argv)
 			break;
 
 		case 0x20:
+			/* Consecutive Frame limiter enabled? */
+			if (limit_cfs) {
+				if (rx_id == src)
+					src_cfs++;
+				if (rx_id == dst)
+					dst_cfs++;
+				if (rx_id == bst)
+					bst_cfs++;
+			}
+
 			printf("[CF] sn: %X    data:", n_pci & 0x0F);
 			datidx = ext + 1;
 			break;
