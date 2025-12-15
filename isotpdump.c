@@ -228,7 +228,7 @@ int main(int argc, char **argv)
 	int asc = 0;
 	int color = 0;
 	int uds_output = 0;
-	int is_ff = 0;
+	int uds_data_start = 0;
 	int timestamp = 0;
 	int datidx = 0;
 	unsigned long fflen = 0;
@@ -488,7 +488,7 @@ int main(int argc, char **argv)
 
 		switch (n_pci & 0xF0) {
 		case 0x00:
-			is_ff = 1;
+			uds_data_start = 1;
 			if ((n_pci & 0xF) && (n_pci <= 7)) {
 				printf("[SF] ln: %-4d data:", n_pci);
 				datidx = ext + 1;
@@ -501,7 +501,7 @@ int main(int argc, char **argv)
 			break;
 
 		case 0x10:
-			is_ff = 1;
+			uds_data_start = 1;
 			fflen = ((n_pci & 0x0F) << 8) + *(data + ext + 1);
 			if (fflen)
 				datidx = ext + 2;
@@ -561,7 +561,7 @@ int main(int argc, char **argv)
 				}
 				printf("'");
 			}
-			if (uds_output && is_ff) {
+			if (uds_output && uds_data_start) {
 				int offset = 3;
 
 				if (asc)
@@ -569,7 +569,7 @@ int main(int argc, char **argv)
 
 				printf("%*s", ((7-ext) - (framelen-datidx)) * offset + 3, " - ");
 				print_uds_message(*(data + datidx), *(data + datidx + 2));
-				is_ff = 0;
+				uds_data_start = 0;
 			}
 		}
 
