@@ -110,7 +110,7 @@ void print_usage(char *prg)
 	fprintf(stderr, "         -d <can_id>  * (destination can_id. Use 8 digits for extended IDs)\n");
 	fprintf(stderr, "         -x <addr>[:<rxaddr>]  (extended addressing / opt. separate rxaddr)\n");
 	fprintf(stderr, "         -L <mtu>:<tx_dl>:<tx_flags>  (link layer options for CAN FD)\n");
-	fprintf(stderr, "         -X <tx_dl>:<tx_addr>:<rx_addr>:<tx_flags>:<rx_flags>:<tx_vcid>:<rx_vcid>\n");
+	fprintf(stderr, "         -X <tx_dl>:<tx_addr>:<rx_addr>:<tx_flags>:<rx_flags>:<tx_vcid>:<rx_vcid>:<sdt_mode>\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "padding:\n");
 	fprintf(stderr, "         -p [tx]:[rx]  (set and enable tx/rx padding bytes)\n");
@@ -263,14 +263,15 @@ int main(int argc, char **argv)
 			break;
 
 		case 'X':
-			if (sscanf(optarg, "%u:%x:%x:%hhx:%hhx:%hhx:%hhx",
+			if (sscanf(optarg, "%u:%x:%x:%hhx:%hhx:%hhx:%hhx:%hhx",
 				   &xlopts.tx_dl,
 				   &xlopts.tx_addr,
 				   &xlopts.rx_addr,
 				   &xlopts.tx_flags,
 				   &xlopts.rx_flags,
 				   &xlopts.tx_vcid,
-				   &xlopts.rx_vcid) != 7) {
+				   &xlopts.rx_vcid,
+				   &xlopts.sdt_mode) != 8) {
 				fprintf(stderr, "unknown XL link layer options '%s'.\n", optarg);
 				print_usage(basename(argv[0]));
 				exit(0);
@@ -357,11 +358,6 @@ int main(int argc, char **argv)
 
 	setsockopt(sc, SOL_CAN_ISOTP, CAN_ISOTP_OPTS, &opts, sizeof(opts));
 	setsockopt(sc, SOL_CAN_ISOTP, CAN_ISOTP_RECV_FC, &fcopts, sizeof(fcopts));
-
-	if (llopts.tx_dl && (xlopts.tx_flags & CANXL_XLF)) {
-		printf("conflicting CC/FD and XL link layer sockopt\n");
-		exit(1);
-	}
 
 	if (llopts.tx_dl) {
 		if (setsockopt(sc, SOL_CAN_ISOTP, CAN_ISOTP_LL_OPTS, &llopts, sizeof(llopts)) < 0) {

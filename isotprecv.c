@@ -75,7 +75,7 @@ void print_usage(char *prg)
 	fprintf(stderr, "         -l            (loop: do not exit after pdu reception.)\n");
 	fprintf(stderr, "         -F            (enable dynamic flow control parameters)\n");
 	fprintf(stderr, "         -L <mtu>:<tx_dl>:<tx_flags>  (link layer options for CAN FD)\n");
-	fprintf(stderr, "         -X <tx_dl>:<tx_addr>:<rx_addr>:<tx_flags>:<rx_flags>:<tx_vcid>:<rx_vcid>\n");
+	fprintf(stderr, "         -X <tx_dl>:<tx_addr>:<rx_addr>:<tx_flags>:<rx_flags>:<tx_vcid>:<rx_vcid>:<sdt_mode>\n");
 	fprintf(stderr, "\nCAN IDs and addresses are given and expected in hexadecimal values.\n");
 	fprintf(stderr, "The pdu data is written on STDOUT in space separated ASCII hex values.\n");
 	fprintf(stderr, "\n");
@@ -202,14 +202,15 @@ int main(int argc, char **argv)
 			break;
 
 		case 'X':
-			if (sscanf(optarg, "%u:%x:%x:%hhx:%hhx:%hhx:%hhx",
+			if (sscanf(optarg, "%u:%x:%x:%hhx:%hhx:%hhx:%hhx:%hhx",
 				   &xlopts.tx_dl,
 				   &xlopts.tx_addr,
 				   &xlopts.rx_addr,
 				   &xlopts.tx_flags,
 				   &xlopts.rx_flags,
 				   &xlopts.tx_vcid,
-				   &xlopts.rx_vcid) != 7) {
+				   &xlopts.rx_vcid,
+				   &xlopts.sdt_mode) != 8) {
 				fprintf(stderr, "unknown XL link layer options '%s'.\n", optarg);
 				print_usage(basename(argv[0]));
 				exit(0);
@@ -243,11 +244,6 @@ int main(int argc, char **argv)
 
 	setsockopt(s, SOL_CAN_ISOTP, CAN_ISOTP_OPTS, &opts, sizeof(opts));
 	setsockopt(s, SOL_CAN_ISOTP, CAN_ISOTP_RECV_FC, &fcopts, sizeof(fcopts));
-
-	if (llopts.tx_dl && (xlopts.tx_flags & CANXL_XLF)) {
-		printf("conflicting CC/FD and XL link layer sockopt\n");
-		exit(1);
-	}
 
 	if (llopts.tx_dl) {
 		if (setsockopt(s, SOL_CAN_ISOTP, CAN_ISOTP_LL_OPTS, &llopts, sizeof(llopts)) < 0) {
