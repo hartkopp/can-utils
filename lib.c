@@ -170,21 +170,23 @@ int parse_canframe(char *cs, union cfu *cu)
 
 	memset(cu, 0, sizeof(*cu)); /* init CAN CC/FD/XL frame, e.g. LEN = 0 */
 
-	if (len < 4)
-		return 0;
+	if (len >= 4 && cs[3] == CANID_DELIM) { /* 3 digits SFF CAN ID */
 
-	if (cs[3] == CANID_DELIM) { /* 3 digits SFF */
+		idx = 4; /* start of frame data */
 
-		idx = 4;
+		/* get 3 digits SFF CAN ID value */
 		for (i = 0; i < 3; i++) {
 			if ((tmp = asc2nibble(cs[i])) > 0x0F)
 				return 0;
 			cu->cc.can_id |= tmp << (2 - i) * 4;
 		}
 
-	} else if (cs[5] == CANID_DELIM) { /* 5 digits CAN XL VCID/PRIO*/
+	} else if (len >= 21 && cs[5] == CANID_DELIM && cs[20] == CANID_DELIM) {
+		/* 5 digits CAN XL VCID/PRIO - but also check for 2nd '#' here */
 
-		idx = 6;
+		idx = 6; /* start of CAN XL frame extra content (AF, SDT, etc) */
+
+		/* get 5 digits CAN XL VCID/PRIO */
 		for (i = 0; i < 5; i++) {
 			if ((tmp = asc2nibble(cs[i])) > 0x0F)
 				return 0;
@@ -196,9 +198,11 @@ int parse_canframe(char *cs, union cfu *cu)
 		cu->xl.prio &= CANXL_PRIO_MASK;
 		cu->xl.prio |= tmp;
 
-	} else if (cs[8] == CANID_DELIM) { /* 8 digits EFF */
+	} else if (len >= 9 && cs[8] == CANID_DELIM) { /* 8 digits EFF CAN ID */
 
-		idx = 9;
+		idx = 9; /* start of frame data */
+
+		/* get 8 digits EFF CAN ID value */
 		for (i = 0; i < 8; i++) {
 			if ((tmp = asc2nibble(cs[i])) > 0x0F)
 				return 0;
@@ -239,11 +243,12 @@ int parse_canframe(char *cs, union cfu *cu)
 		cu->fd.flags |= CANFD_FDF; /* dual-use */
 		idx += 2;
 
-	} else if (cs[idx + 14] == CANID_DELIM) { /* CAN XL frame '#80:00:11223344#' */
+	} else if (idx == 6) { /* CAN XL frame extra content '#80:00:11223344#' */
 		maxdlen = CANXL_MAX_DLEN;
 		mtu = CANXL_MTU;
-		data = cu->xl.data; /* fill CAN XL data */
+		data = cu->xl.data; /* overwrite pointer to CAN XL data */
 
+		/* get CAN XL frame extra content */
 		if ((cs[idx + 2] != XL_HDR_DELIM) || (cs[idx + 5] != XL_HDR_DELIM))
 			return 0;
 
@@ -277,6 +282,7 @@ int parse_canframe(char *cs, union cfu *cu)
 		idx++; /* skip CANID_DELIM */
 	}
 
+	/* copy CAN frame data content */
 	for (i = 0, dlen = 0; i < maxdlen; i++) {
 		if (cs[idx] == DATA_SEPERATOR) /* skip (optional) separator */
 			idx++;

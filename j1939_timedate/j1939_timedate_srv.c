@@ -41,17 +41,23 @@ static void gmtime_to_j1939_pgn_65254_td(struct j1939_time_date_packet *tdp)
 	utc_tm = gmtime_r(&now, &utc_tm_buf);
 	local_tm = localtime_r(&now, &local_tm_buf);
 
-	/* Calculate the offsets */
-	hour_offset = local_tm->tm_hour - utc_tm->tm_hour;
-	minute_offset = local_tm->tm_min - utc_tm->tm_min;
+	if (local_tm) {
+		/* Calculate the offsets */
+		hour_offset = local_tm->tm_hour - utc_tm->tm_hour;
+		minute_offset = local_tm->tm_min - utc_tm->tm_min;
 
-	/* Handle date rollover */
-	if (local_tm->tm_mday != utc_tm->tm_mday) {
-		if (local_tm->tm_hour < 12)
-			hour_offset += 24;  /* past midnight */
-		else
-			hour_offset -= 24;  /* before midnight */
-	}
+		/* Handle date rollover */
+		if (local_tm->tm_mday != utc_tm->tm_mday) {
+			if (local_tm->tm_hour < 12)
+				hour_offset += 24;  /* past midnight */
+			else
+				hour_offset -= 24;  /* before midnight */
+		}
+	} else {
+		/* The local time offsets cannot be determined at the moment */
+		hour_offset = 0xF9;
+		minute_offset = 0xFF;
+	}		
 
 	/*
 	 * Seconds (spn959):

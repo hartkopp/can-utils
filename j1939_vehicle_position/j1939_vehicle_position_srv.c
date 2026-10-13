@@ -270,6 +270,12 @@ static int j1939_vp2_get_data(struct j1939_vp_srv_priv *priv,
 	j1939_vp2_set_pdop(vp2p, pdop);
 	j1939_vp2_set_tdop(vp2p, tdop);
 
+	/* This PG's last 3 bytes are not assigned and hence must be set
+	 * to 0xFF as per J1939-71, section 5.2 */
+	vp2p->unused5 = 0xFF;
+	vp2p->unused6 = 0xFF;
+	vp2p->unused7 = 0xFF;
+
 	return 0;
 }
 
