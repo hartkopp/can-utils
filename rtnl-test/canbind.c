@@ -169,11 +169,12 @@ static int run_load(const char *if1, const char *if2, int nfilters,
 		}
 		cur = (cur == idx1) ? idx2 : idx1;
 		n++;
-		if ((n & 0x3ff) == 0) {
-			t = now_s() - start;
-			if (seconds > 0 && t >= seconds)
-				break;
-		}
+		/* clock_gettime() is a cheap vDSO call, so honour the
+		 * duration exactly instead of only checking every Nth bind
+		 * (which overshoots badly at low bind rates).
+		 */
+		if (seconds > 0 && now_s() - start >= seconds)
+			break;
 	}
 
 	t = now_s() - start;
